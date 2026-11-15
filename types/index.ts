@@ -18,3 +18,20 @@ export type Place = {
   distance_m?: number;
   tags: Record<string, string>;
 };
+
+export type Bbox = {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+};
+
+export type City = {
+  id: string;
+  name: string;
+  slug: string;
+  center_lat: number;
+  center_lng: number;
+  default_zoom: number;
+  bbox: Bbox | null;
+};

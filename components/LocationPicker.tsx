@@ -1,15 +1,68 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+
 import GpsButton from "@/components/GpsButton";
+import LocationSearch from "@/components/LocationSearch";
+
+import { getActiveCities } from "@/lib/cities";
 import { RADIUS_OPTIONS_KM } from "@/lib/categories";
-import type { LocationChoice } from "@/types";
+
+import type { City, LocationChoice } from "@/types";
 
 export default function LocationPicker() {
   const [location, setLocation] = useState<LocationChoice | null>(null);
   const [radiusKm] = useState<number>(3);
+
+  const [city, setCity] = useState<City | null>(null);
+  const [cityLoading, setCityLoading] = useState(true);
+  const [cityError, setCityError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCity() {
+      try {
+        const cities = await getActiveCities();
+
+        if (cancelled) return;
+
+        if (cities.length === 0) {
+          setCityError("No active service area is available.");
+          return;
+        }
+
+        const activeCity = cities[0];
+
+        if (!activeCity.bbox) {
+          setCityError("The service area boundary is not configured.");
+          return;
+        }
+
+        setCity(activeCity);
+      } catch (error) {
+        if (!cancelled) {
+          setCityError(
+            error instanceof Error
+              ? error.message
+              : "Could not load the service area."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setCityLoading(false);
+        }
+      }
+    }
+
+    loadCity();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const homeHref = location
     ? `/home?${new URLSearchParams({
@@ -27,16 +80,35 @@ export default function LocationPicker() {
 
         <GpsButton onLocation={setLocation} />
 
-        <p className="my-3 text-sm text-gray-500">
-          Or type a location (coming Wed 11 Nov).
-        </p>
+        <div className="my-4 border-t" />
+
+        {cityLoading && (
+          <p className="text-sm text-gray-500">
+            Loading service area...
+          </p>
+        )}
+
+        {cityError && (
+          <p role="alert" className="text-sm text-red-600">
+            {cityError}
+          </p>
+        )}
+
+        {city?.bbox && (
+          <LocationSearch
+            bbox={city.bbox}
+            onLocation={setLocation}
+          />
+        )}
 
         {location && (
-          <div className="rounded bg-green-50 p-3 text-sm">
+          <div className="mt-4 rounded bg-green-50 p-3 text-sm">
             <p className="font-medium">{location.label}</p>
+
             <p>
               {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
             </p>
+
             {location.accuracy_m !== undefined && (
               <p className="text-gray-600">
                 Accuracy: about {location.accuracy_m} m
@@ -46,16 +118,17 @@ export default function LocationPicker() {
         )}
       </section>
 
-      {/* 2. Radius (placeholder) */}
+      {/* 2. Radius */}
       <section className="mb-6 rounded border bg-white p-4">
         <h2 className="mb-2 font-semibold">2. Radius</h2>
+
         <p className="text-sm text-gray-600">
-          Options: {RADIUS_OPTIONS_KM.join(", ")} km (selector on Thu 12 Nov).
+          Options: {RADIUS_OPTIONS_KM.join(", ")} km.
           Using {radiusKm} km for now.
         </p>
       </section>
 
-      {/* Continue */}
+      {/* 3. Continue */}
       {location ? (
         <Link
           href={homeHref}
