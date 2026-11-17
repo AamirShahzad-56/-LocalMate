@@ -1,76 +1,93 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import GpsButton from "@/components/GpsButton";
 import LocationSearch from "@/components/LocationSearch";
+import RadiusSelector from "@/components/RadiusSelector";
 
 import { getActiveCities } from "@/lib/cities";
-import { RADIUS_OPTIONS_KM } from "@/lib/categories";
+import {
+  coverageMessage,
+  findCityForPoint,
+} from "@/lib/serviceArea";
 
 import type { City, LocationChoice } from "@/types";
 
 export default function LocationPicker() {
   const [location, setLocation] = useState<LocationChoice | null>(null);
-  const [radiusKm] = useState<number>(3);
+  const [radiusKm, setRadiusKm] = useState<number>(3);
 
-  const [city, setCity] = useState<City | null>(null);
-  const [cityLoading, setCityLoading] = useState(true);
-  const [cityError, setCityError] = useState<string | null>(null);
+  const [cities, setCities] = useState<City[]>([]);
+  const [citiesLoaded, setCitiesLoaded] = useState(false);
+  const [citiesError, setCitiesError] = useState<string | null>(null);
 
+  // Load all active service-area cities.
   useEffect(() => {
     let cancelled = false;
 
-    async function loadCity() {
+    async function loadCities() {
       try {
-        const cities = await getActiveCities();
+        const activeCities = await getActiveCities();
 
         if (cancelled) return;
 
-        if (cities.length === 0) {
-          setCityError("No active service area is available.");
-          return;
+        setCities(activeCities);
+
+        if (activeCities.length === 0) {
+          setCitiesError("No active service area is available.");
         }
-
-        const activeCity = cities[0];
-
-        if (!activeCity.bbox) {
-          setCityError("The service area boundary is not configured.");
-          return;
-        }
-
-        setCity(activeCity);
       } catch (error) {
         if (!cancelled) {
-          setCityError(
+          setCitiesError(
             error instanceof Error
               ? error.message
-              : "Could not load the service area."
+              : "Could not load supported cities."
           );
         }
       } finally {
         if (!cancelled) {
-          setCityLoading(false);
+          setCitiesLoaded(true);
         }
       }
     }
 
-    loadCity();
+    loadCities();
 
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const homeHref = location
-    ? `/home?${new URLSearchParams({
-        lat: String(location.lat),
-        lng: String(location.lng),
-        radius: String(radiusKm),
-      }).toString()}`
-    : "#";
+  // Find which supported city contains the selected location.
+  const matchedCity = useMemo(
+    () =>
+      location
+        ? findCityForPoint(location.lat, location.lng, cities)
+        : null,
+    [location, cities]
+  );
+
+  const outsideArea =
+    !!location && citiesLoaded && !matchedCity;
+
+  const canContinue =
+    !!location && citiesLoaded && !!matchedCity;
+
+  // Build the URL for the home page.
+  const homeHref = useMemo(() => {
+    if (!location || !matchedCity) return "#";
+
+    return `/home?${new URLSearchParams({
+      lat: location.lat.toFixed(5),
+      lng: location.lng.toFixed(5),
+      radius: String(radiusKm),
+      label: location.label,
+      city: matchedCity.slug,
+    }).toString()}`;
+  }, [location, matchedCity, radiusKm]);
 
   return (
     <div>
@@ -80,29 +97,32 @@ export default function LocationPicker() {
 
         <GpsButton onLocation={setLocation} />
 
-        <div className="my-4 border-t" />
+        <div className="my-4 flex items-center gap-3 text-sm text-gray-500">
+          <span className="h-px flex-1 bg-gray-200" />
+          or
+          <span className="h-px flex-1 bg-gray-200" />
+        </div>
 
-        {cityLoading && (
-          <p className="text-sm text-gray-500">
-            Loading service area...
+        {citiesError && (
+          <p role="alert" className="mb-2 text-sm text-red-600">
+            {citiesError}
           </p>
         )}
 
-        {cityError && (
-          <p role="alert" className="text-sm text-red-600">
-            {cityError}
-          </p>
-        )}
-
-        {city?.bbox && (
+        {/* Show search after active cities load successfully. */}
+        {citiesLoaded && !citiesError && (
           <LocationSearch
-            bbox={city.bbox}
+            bbox={cities[0]?.bbox ?? null}
             onLocation={setLocation}
           />
         )}
 
         {location && (
-          <div className="mt-4 rounded bg-green-50 p-3 text-sm">
+          <div
+            className={`mt-4 rounded p-3 text-sm ${
+              outsideArea ? "bg-red-50" : "bg-green-50"
+            }`}
+          >
             <p className="font-medium">{location.label}</p>
 
             <p>
@@ -114,22 +134,39 @@ export default function LocationPicker() {
                 Accuracy: about {location.accuracy_m} m
               </p>
             )}
+
+            {matchedCity && (
+              <p className="text-green-700">
+                Inside service area: {matchedCity.name}
+              </p>
+            )}
           </div>
+        )}
+
+        {outsideArea && (
+          <p role="alert" className="mt-2 text-sm font-medium text-red-600">
+            {coverageMessage(cities)} Please choose a location inside the
+            service area.
+          </p>
         )}
       </section>
 
       {/* 2. Radius */}
       <section className="mb-6 rounded border bg-white p-4">
-        <h2 className="mb-2 font-semibold">2. Radius</h2>
+        <h2 className="mb-3 font-semibold">2. Radius</h2>
 
-        <p className="text-sm text-gray-600">
-          Options: {RADIUS_OPTIONS_KM.join(", ")} km.
-          Using {radiusKm} km for now.
+        <RadiusSelector
+          value={radiusKm}
+          onChange={setRadiusKm}
+        />
+
+        <p className="mt-2 text-sm text-gray-600">
+          Selected: {radiusKm} km
         </p>
       </section>
 
       {/* 3. Continue */}
-      {location ? (
+      {canContinue ? (
         <Link
           href={homeHref}
           className="inline-block rounded bg-blue-600 px-4 py-2 text-white"
@@ -142,7 +179,7 @@ export default function LocationPicker() {
           disabled
           className="rounded bg-gray-300 px-4 py-2 text-gray-600"
         >
-          Choose a location to continue
+          Choose a location inside the service area
         </button>
       )}
     </div>
