@@ -19,6 +19,19 @@ export type Place = {
   tags: Record<string, string>;
 };
 
+export type NearbyPlace = {
+  osm_type: "node" | "way" | "relation";
+  osm_id: number;
+  name: string | null;
+  category: CategoryId;
+  subtype: string | null;
+  address: string | null;
+  lat: number;
+  lng: number;
+  distance_m: number;
+  tags: Record<string, string>;
+};
+
 export type Bbox = {
   west: number;
   south: number;
